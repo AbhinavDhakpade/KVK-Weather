@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { fetchDashboard, fetchDiseases, fetchIrrigationRules } from "../api/client";
+import { useAuth } from "./AuthContext";
 
 const DataContext = createContext(null);
 
-const FARM_ID = 1;
 // How often the frontend silently re-fetches in the background so the UI
 // reflects the backend's automatic hourly sync (advisory/scheduler.py)
 // without anyone clicking "Refresh" or reloading the page. Shorter than the
@@ -12,6 +12,9 @@ const FARM_ID = 1;
 const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 export function DataProvider({ children }) {
+  const { user } = useAuth();
+  const farmId = user?.farm?.id ?? 1; // staff have no farm of their own yet: fall back to 1
+
   const [dashboard, setDashboard] = useState(null);
   const [diseases, setDiseases] = useState([]);
   const [irrigationRules, setIrrigationRules] = useState([]);
@@ -23,8 +26,8 @@ export function DataProvider({ children }) {
     if (!silent) setError(null);
     try {
       const [dash, diseaseRes, irrigRes] = await Promise.all([
-        fetchDashboard(FARM_ID),
-        fetchDiseases({ ordering: "-risk_score" }),
+        fetchDashboard(farmId),
+        fetchDiseases({ ordering: "-risk_score", farm: farmId }),
         fetchIrrigationRules(),
       ]);
       setDashboard(dash);
@@ -39,7 +42,7 @@ export function DataProvider({ children }) {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [farmId]);
 
   useEffect(() => {
     loadAll();
@@ -61,7 +64,7 @@ export function DataProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      farmId: FARM_ID,
+      farmId,
       dashboard,
       diseases,
       irrigationRules,
@@ -69,7 +72,7 @@ export function DataProvider({ children }) {
       error,
       refresh: loadAll,
     }),
-    [dashboard, diseases, irrigationRules, loading, error, loadAll]
+    [farmId, dashboard, diseases, irrigationRules, loading, error, loadAll]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

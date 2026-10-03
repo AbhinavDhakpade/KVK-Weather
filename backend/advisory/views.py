@@ -4,8 +4,11 @@ from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import viewsets, filters
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
+from django.http import Http404
+from rest_framework.exceptions import NotAuthenticated, PermissionDenied
 
 from .ml.inference import models_available, predict_irrigation_requirement, predict_yield
 from .models import (
@@ -37,6 +40,31 @@ from .serializers import (
 )
 from .weather_service import compute_irrigation_requirement
 from .sync_service import compute_and_store_irrigation
+
+def allowed_farm_id(request):
+    """
+    The one place that decides which farm a request may see.
+
+    - Not logged in            -> 401.
+    - Staff/admin account      -> may pass ?farm=<id>, or omit it to see all farms.
+    - Farmer account           -> always their own farm. Asking for a different
+                                  farm returns 404, so other farms' existence
+                                  isn't revealed either.
+    """
+    user = request.user
+    if not user.is_authenticated:
+        raise NotAuthenticated()
+
+    requested = request.query_params.get("farm")
+    if user.is_staff:
+        return requested
+
+    farm = FarmProfile.objects.filter(owner=user).first()
+    if farm is None:
+        raise Http404("No farm is linked to this account.")
+    if requested and str(requested) != str(farm.pk):
+        raise Http404("Farm not found.")
+    return str(farm.pk)
 
 
 def _latest_weather_for_farm(farm):
@@ -80,7 +108,7 @@ class DiseaseViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        farm_id = self.request.query_params.get("farm")
+        farm_id = allowed_farm_id(self.request)
         farm = FarmProfile.objects.filter(pk=farm_id).first() if farm_id else FarmProfile.objects.first()
         context["current_weather"] = _latest_weather_for_farm(farm)
         return context
@@ -134,7 +162,7 @@ class IrrigationRequirementLogViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset().select_related("farm")
-        farm_id = self.request.query_params.get("farm")
+        farm_id = allowed_farm_id(self.request)
         if farm_id:
             qs = qs.filter(farm_id=farm_id)
         if self.request.query_params.get("latest") in ("true", "1"):
@@ -154,7 +182,18 @@ class FarmProfileViewSet(viewsets.ModelViewSet):
     queryset = FarmProfile.objects.all()
     serializer_class = FarmProfileSerializer
     http_method_names = ["get", "post", "patch", "head", "options"]  # no PUT, no DELETE
+    permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return FarmProfile.objects.all().order_by("id")
+        return FarmProfile.objects.filter(owner=user).order_by("id")
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admins can create farms.")
+        return super().create(request, *args, **kwargs)
 
 class ActualWeatherReadingViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -169,7 +208,7 @@ class ActualWeatherReadingViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        farm = self.request.query_params.get("farm")
+        farm = allowed_farm_id(self.request)
         if farm:
             qs = qs.filter(farm_id=farm)
         days = self.request.query_params.get("days")
@@ -192,7 +231,7 @@ class ForecastWeatherReadingViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        farm = self.request.query_params.get("farm")
+        farm = allowed_farm_id(self.request)
         if farm:
             qs = qs.filter(farm_id=farm)
         days = self.request.query_params.get("days")
@@ -207,7 +246,7 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        farm = self.request.query_params.get("farm")
+        farm = allowed_farm_id(self.request)
         if farm:
             qs = qs.filter(farm_id=farm)
         return qs
@@ -219,7 +258,7 @@ class AdvisoryTimelineViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        farm = self.request.query_params.get("farm")
+        farm = allowed_farm_id(self.request)
         if farm:
             qs = qs.filter(farm_id=farm)
         return qs
@@ -231,7 +270,7 @@ class CropGrowthStageViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        farm = self.request.query_params.get("farm")
+        farm = allowed_farm_id(self.request)
         if farm:
             qs = qs.filter(farm_id=farm)
         return qs
@@ -247,7 +286,7 @@ def dashboard_summary(request):
     second-opinion), active alerts, advisory timeline, irrigation snapshot (deterministic
     + ML second-opinion), ML yield prediction, and GDD progress.
     """
-    farm_id = request.query_params.get("farm")
+    farm_id = allowed_farm_id(request)
     farm = (
         get_object_or_404(FarmProfile, pk=farm_id)
         if farm_id
@@ -413,6 +452,7 @@ def dashboard_summary(request):
 
 
 @api_view(["GET", "POST"])
+@permission_classes([IsAdminUser])
 def farmer_details(request):
     """
     Store / retrieve a farmer's details (identity + the image's Farmer Inputs:
@@ -465,7 +505,7 @@ def irrigation_requirement(request):
         GET /api/irrigation-requirement/?et0_mm=5&crop_stage=Grand%20Growth
             &field_area_m2=4000&pump_discharge_l_s=5
     """
-    farm_id = request.query_params.get("farm")
+    farm_id = allowed_farm_id(request)
 
     if farm_id:
         farm = get_object_or_404(FarmProfile, pk=farm_id)
@@ -524,7 +564,7 @@ def irrigation_ml_predict(request):
     context or from explicit query parameters (useful for "what if" scenarios in
     the frontend, e.g. previewing a different soil type).
     """
-    farm_id = request.query_params.get("farm")
+    farm_id = allowed_farm_id(request)
 
     if farm_id:
         farm = get_object_or_404(FarmProfile, pk=farm_id)
@@ -565,7 +605,7 @@ def yield_ml_predict(request):
     GET /api/ml/yield/?farm=1
     GET /api/ml/yield/?gdd_at_harvest=4800&avg_disease_risk_pct=20&irrigation_adequacy_pct=90&soil_type=Black%20Cotton
     """
-    farm_id = request.query_params.get("farm")
+    farm_id = allowed_farm_id(request)
 
     if farm_id:
         farm = get_object_or_404(FarmProfile, pk=farm_id)
@@ -609,7 +649,7 @@ def refresh_weather_now(request):
     advisory/scheduler.py) — both paths go through sync_service.run_weather_sync()
     and log an identical SchedulerLog row (trigger="manual" here).
     """
-    farm_id = request.query_params.get("farm")
+    farm_id = allowed_farm_id(request)
     farm = get_object_or_404(FarmProfile, pk=farm_id) if farm_id else FarmProfile.objects.first()
     if farm is None:
         return Response({"detail": "No farm profiles exist yet."}, status=404)
@@ -644,6 +684,7 @@ def ml_status(request):
 
 
 @api_view(["GET"])
+@permission_classes([IsAdminUser])
 def scheduler_status(request):
     """
     GET /api/scheduler/status/
@@ -677,6 +718,7 @@ def scheduler_status(request):
 
 
 @api_view(["GET"])
+@permission_classes([IsAdminUser])
 def scheduler_logs(request):
     """GET /api/scheduler/logs/?limit=20 -> recent sync runs, newest first."""
     try:
@@ -688,6 +730,7 @@ def scheduler_logs(request):
 
 
 @api_view(["POST"])
+@permission_classes([IsAdminUser])
 def scheduler_run_now(request):
     """
     POST /api/scheduler/run-now/
@@ -701,3 +744,19 @@ def scheduler_run_now(request):
     log = run_weather_sync(trigger="manual")
     status_code = 200 if log.status != "failure" else 502
     return Response(SchedulerLogSerializer(log).data, status=status_code)
+"Added BY Abhinav"
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def me(request):
+    """
+    GET /api/auth/me/ -> who the logged-in user is, and which farm they own.
+    Farmers get their own farm; staff/admin accounts have no farm (farm is null).
+    """
+    farm = FarmProfile.objects.filter(owner=request.user).first()
+    return Response(
+        {
+            "username": request.user.username,
+            "is_staff": request.user.is_staff,
+            "farm": FarmProfileSerializer(farm).data if farm else None,
+        }
+    )

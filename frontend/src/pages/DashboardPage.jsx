@@ -18,10 +18,12 @@ import { GddLineChart } from "../components/weather/MiscWeatherCharts";
 import HealthModal from "../components/modals/HealthModal";
 import WeatherModal from "../components/modals/WeatherModal";
 import DiseaseDetailModal from "../components/modals/DiseaseDetailModal";
+import { useAuth } from "../context/AuthContext";
 
 export default function DashboardPage() {
   const { t, mode } = useAppSettings();
   const { dashboard, loading, error, refresh } = useAppData();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [healthOpen, setHealthOpen] = useState(false);
@@ -40,7 +42,7 @@ export default function DashboardPage() {
       {/* MODE BANNER — explains what farmer/expert mode actually changes */}
       <div className="mode-banner">
         <span className="mode-banner-icon">{isExpert ? "🔬" : "🌾"}</span>
-        <span>{isExpert ? t("mode.expertDesc") : t("mode.farmerDesc")}</span>
+        <span>("mode.expertDesc") : t("mode.farmerDesc")</span>
       </div>
 
       {/* ALERTS — always first thing the farmer sees */}
@@ -162,7 +164,7 @@ export default function DashboardPage() {
 
       {/* ROW 7: SCHEDULER MONITORING — ops visibility into the automatic hourly
           sync; expert mode only, farmers don't need to see this. */}
-      {isExpert && (
+      {isExpert && user?.is_staff && (
         <>
           <div className="section-h mt-16">
             <h2>⏱ {t("scheduler.title")}</h2>

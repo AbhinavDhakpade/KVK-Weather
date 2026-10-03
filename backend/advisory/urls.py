@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from . import views
+from rest_framework.authtoken.views import obtain_auth_token
 
 router = DefaultRouter()
 router.register(r"diseases", views.DiseaseViewSet, basename="disease")
@@ -18,9 +19,11 @@ router.register(r"weather/forecast", views.ForecastWeatherReadingViewSet, basena
 router.register(r"alerts", views.AlertViewSet, basename="alert")
 router.register(r"timeline", views.AdvisoryTimelineViewSet, basename="timelineitem")
 router.register(r"growth-stages", views.CropGrowthStageViewSet, basename="growthstage")
-
+"Auth login and auth me are done Manually"
 urlpatterns = [
     path("dashboard/", views.dashboard_summary, name="dashboard-summary"),
+    path("auth/login/", obtain_auth_token, name="auth-login"),
+    path("auth/me/", views.me, name="auth-me"),
     path("weather/refresh/", views.refresh_weather_now, name="weather-refresh"),
     path("scheduler/status/", views.scheduler_status, name="scheduler-status"),
     path("scheduler/logs/", views.scheduler_logs, name="scheduler-logs"),

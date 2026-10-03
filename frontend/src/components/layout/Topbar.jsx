@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { useAppSettings } from "../../context/AppSettingsContext";
 import { useAppData } from "../../context/DataContext";
+import { useAuth } from "../../context/AuthContext";
 
 const PAGE_KEY_BY_PATH = {
   "/": "dashboard",
@@ -23,6 +24,7 @@ export default function Topbar() {
   const { toggleSidebar, lang, setLang, dark, toggleDark, t } = useAppSettings();
   const { refresh, loading } = useAppData();
   const location = useLocation();
+    const { user, logout } = useAuth();
 
   const pageKey = PAGE_KEY_BY_PATH[location.pathname] || "dashboard";
 
@@ -58,6 +60,9 @@ export default function Topbar() {
           }}
         >
           🔄
+        </button>
+                <button className="icon-btn" onClick={logout} title={`Log out (${user?.username})`} aria-label="Log out">
+          🚪
         </button>
       </div>
     </div>

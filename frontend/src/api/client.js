@@ -12,12 +12,36 @@ export const api = axios.create({
 
 // Append ?_t=<timestamp> to every GET request so the browser never
 // serves a cached (stale) response for dashboard / weather / disease data.
+const TOKEN_KEY = "agriaura_token";
+export const getToken = () => localStorage.getItem(TOKEN_KEY);
+export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
 api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) config.headers.Authorization = `Token ${token}`;
   if (!config.method || config.method === "get") {
     config.params = { ...config.params, _t: Date.now() };
   }
   return config;
 });
+
+// If the server says our token is no longer valid, forget it and tell the app.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && getToken()) {
+      clearToken();
+      window.dispatchEvent(new Event("agriaura:unauthorized"));
+    }
+    return Promise.reject(error);
+  }
+);
+
+/* ===================== AUTH ===================== */
+export const loginRequest = (username, password) =>
+  api.post("/auth/login/", { username, password }).then((r) => r.data.token);
+export const fetchMe = () => api.get("/auth/me/").then((r) => r.data);
 
 /* ===================== DASHBOARD ===================== */
 export const fetchDashboard = (farmId = 1) =>
@@ -27,8 +51,8 @@ export const fetchDashboard = (farmId = 1) =>
 export const fetchDiseases = (params = {}) =>
   api.get("/diseases/", { params: { ordering: "-risk_score", farm: 1, ...params } }).then((r) => r.data);
 
-export const fetchDiseaseDetail = (id, farmId = 1) =>
-  api.get(`/diseases/${id}/`, { params: { farm: farmId } }).then((r) => r.data);
+export const fetchDiseaseDetail = (id, farmId) =>
+  api.get(`/diseases/${id}/`, { params: farmId ? { farm: farmId } : {} }).then((r) => r.data);
 
 /* ===================== ML ===================== */
 export const fetchMlStatus = () => api.get("/ml/status/").then((r) => r.data);

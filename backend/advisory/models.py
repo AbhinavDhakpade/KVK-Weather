@@ -1,5 +1,5 @@
 from django.db import models
-
+from django.conf import settings
 
 class Disease(models.Model):
     """Pest / disease reference data, seeded from table_weather___pest_disease.xlsx"""
@@ -187,6 +187,15 @@ class FarmProfile(models.Model):
     # duplicates these rows.
     boundary_geojson = models.JSONField(blank=True, null=True)
     boundary_source_file = models.CharField(max_length=255, blank=True, default="")
+    # The login account that owns this farm. Farmers see only the farm linked
+    # to their account; staff/admin accounts have no farm and see all of them.
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="farm",
+    )
 
     def __str__(self):
         return self.farm_name
