@@ -13,6 +13,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py seed_data --reset
+python manage.py createsuperuser
 python manage.py train_ml_models
 ```
 
@@ -31,4 +32,4 @@ npm install
 http://localhost:5173
 
 ## Admin Panel
-http://localhost:8000/admin  →  admin / agriaura123
+http://localhost:8000/admin  →  the superuser you create with `python manage.py createsuperuser`

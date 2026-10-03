@@ -66,9 +66,13 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 python manage.py migrate
-python manage.py seed_data --reset      # imports the Excel file + seeds all reference data
+python manage.py seed_data --reset      # imports the Excel file + seeds all reference data (creates a demo farm, id 1)
 python manage.py train_ml_models        # trains the disease/irrigation/yield ML models
-python manage.py createsuperuser        # optional, for /admin/
+python manage.py createsuperuser        # your admin account, for /admin/ and the admin view of the API
+
+# Optional: load real farmers from the KML files, then create a login for each
+python manage.py import_kml_farmers
+python manage.py create_farmer_users    # prints a one-time table of usernames + passwords: save it
 
 python manage.py runserver 0.0.0.0:8000
 ```
@@ -80,14 +84,7 @@ python manage.py sync_weather
 
 The API is now live at `http://127.0.0.1:8000/api/`. The Django admin (full CRUD over every table) is at `http://127.0.0.1:8000/admin/`.
 
-A pre-seeded `db.sqlite3` ships with this project so it works out of the box; it includes a default superuser:
-
-```
-username: admin
-password: agriaura123
-```
-
-Change this password (or delete `db.sqlite3` and re-run `migrate` + `seed_data` + `createsuperuser`) before deploying anywhere beyond your own machine.
+The database (`db.sqlite3`) is created locally by `migrate` and is not stored in the repo. Create your own admin with `createsuperuser`; there are no default credentials. Run `import_kml_farmers` after `seed_data`, because `seed_data --reset` deletes all farms.
 
 ### Live weather data: NASA POWER + Open-Meteo
 
@@ -148,10 +145,21 @@ python manage.py seed_data --reset
 
 The command is idempotent — `--reset` clears existing rows first; without it, records are matched and updated by their natural key (`sr_no` for diseases/irrigation rules).
 
+### Login and roles
+
+Every API endpoint requires a token, except `POST /api/auth/login/`.
+
+- **Farmer accounts** (created by `create_farmer_users`, one per KML farm) see and edit only their own farm. Asking for another farm returns 404.
+- **Admin accounts** (staff/superusers) can see all farms and use the scheduler and `farmer-details` endpoints.
+
+`POST /api/auth/login/` with `{"username", "password"}` returns `{"token": "..."}`. Send it as `Authorization: Token <token>`. `GET /api/auth/me/` returns the logged-in user and their farm. The access rules are covered by `python manage.py test advisory`.
+
 ### Key API endpoints
 
 | Endpoint | Description |
 |---|---|
+| `POST /api/auth/login/` | Exchange a username and password for a token (the only public endpoint) |
+| `GET /api/auth/me/` | The logged-in user and their farm (`farm` is null for admin accounts) |
 | `GET /api/dashboard/?farm=1` | Composite payload powering the dashboard home page in one request |
 | `GET /api/diseases/?ordering=-risk_score` | All 30 diseases/pests, lightweight list |
 | `GET /api/diseases/<id>/` | Full disease detail incl. treatment protocol |
@@ -165,7 +173,7 @@ The command is idempotent — `--reset` clears existing rows first; without it, 
 | `GET /api/scheduler/logs/?limit=20` | Recent sync runs (scheduled/manual/CLI), newest first |
 | `POST /api/scheduler/run-now/` | Trigger an out-of-band sync of every farm immediately |
 
-All endpoints are read-only (`ReadOnlyModelViewSet`) in this build since the dashboard is advisory/read-focused; extending to writes (e.g. logging actual irrigation events) is a matter of swapping in `ModelViewSet`.
+Farm-scoped endpoints take an optional `?farm=<id>`, which only admin accounts can use to pick a farm; farmers always get their own. `/api/farms/` also allows `PATCH` (a farmer can edit only their own farm) and an admin-only `POST`. `scheduler/*` and `farmer-details/` are admin-only. The other endpoints are read-only.
 
 ## 2. Frontend setup (React + Vite)
 
@@ -264,7 +272,7 @@ Beyond the original dashboard's static cards and charts, this build adds:
 - **Farmer / Expert mode**: this is a real content difference, not just a label. Farmer mode shows plain-language cards (a big "water or don't water" verdict, simple soil/stage/rain facts, the advisory timeline) and hides dense charts and raw tables. Expert mode reveals the full technical layer: VPD/ETc breakdowns, the complete irrigation reference table (all 10 soil-type rules), 7-day trend charts, the disease-risk-vs-GDD scatter plot, and per-parameter weather stat pills. The toggle lives in the sidebar, persists to `localStorage`, and is read directly in each page component (`useAppSettings().mode`) rather than via CSS-only hiding, so farmer mode genuinely renders less/simpler markup instead of just hiding it.
 - **Alerts on the dashboard**: active alerts now render as a compact strip at the very top of the dashboard, above the health score, so they're the first thing a farmer sees when opening the app.
 - **Voice guidance**: uses the browser's native `SpeechSynthesis` API, building the narration string from live dashboard data (health score, top disease risks, today's weather, active alert count) rather than a hard-coded script.
-- **Stable farm IDs across resets**: `seed_data --reset` resets the database's auto-increment sequence after clearing rows, so the farm (and every other seeded row) always comes back as id=1 on a fresh seed. Without this, SQLite's internal counter keeps climbing across repeated `--reset` runs, silently breaking anything that assumes `farm=1` (including this project's own frontend, which defaults to it).
+- **Stable farm IDs across resets**: `seed_data --reset` resets the database's auto-increment sequence after clearing rows, so the farm (and every other seeded row) always comes back as id=1 on a fresh seed. Without this, SQLite's internal counter keeps climbing across repeated `--reset` runs, silently breaking anything that assumes `farm=1` (including the demo farm the frontend falls back to for admin accounts; farmers use their own farm from their login).
 
 ## 6. Database schema (advisory app)
 
