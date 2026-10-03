@@ -1,5 +1,13 @@
-from django.contrib import admin
+import csv
+import io
+from urllib.parse import quote
 
+from django.contrib import admin
+from django.core.exceptions import PermissionDenied
+from django.template.response import TemplateResponse
+from django.urls import path
+
+from .kml_import import ImportResult, import_kml
 from .models import (
     ActualWeatherReading,
     Alert,
@@ -46,7 +54,70 @@ class IrrigationRequirementLogAdmin(admin.ModelAdmin):
 
 @admin.register(FarmProfile)
 class FarmProfileAdmin(admin.ModelAdmin):
-    list_display = ("farm_name", "farmer_name", "village", "variety", "soil_type")
+    list_display = ("farm_name", "farmer_name", "owner", "village", "variety", "soil_type")
+    search_fields = ("farm_name", "farmer_name", "owner__username")
+    # Adds an "Import KML files" button to the top of the farm list.
+    change_list_template = "admin/advisory/farmprofile/change_list.html"
+
+    def get_urls(self):
+        custom = [
+            path(
+                "import-kml/",
+                self.admin_site.admin_view(self.import_kml_view),
+                name="advisory_farmprofile_import_kml",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def import_kml_view(self, request):
+        """Upload one or more KML files; show what happened to each one."""
+        # Importing creates farms AND login accounts, so require both permissions.
+        if not (request.user.has_perm("advisory.add_farmprofile") and request.user.has_perm("auth.add_user")):
+            raise PermissionDenied
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Import farmers from KML files",
+            "opts": self.model._meta,
+        }
+
+        if request.method == "POST":
+            files = request.FILES.getlist("kml_files")
+            if not files:
+                context["error"] = "Please choose at least one .kml file."
+                return TemplateResponse(request, "admin/advisory/farmprofile/import_kml.html", context)
+
+            results = []
+            for upload in files:
+                if not upload.name.lower().endswith(".kml"):
+                    results.append(ImportResult(upload.name, "error", "Not a .kml file."))
+                    continue
+                results.append(import_kml(upload, upload.name))
+
+            counts = {"created": 0, "added": 0, "exists": 0, "error": 0}
+            for r in results:
+                counts[r.status] += 1
+
+            # New passwords exist only in memory right now. Offer them as a CSV
+            # built into the page itself, so nothing is ever stored on the server.
+            credentials = [r for r in results if r.password]
+            csv_href = ""
+            if credentials:
+                buf = io.StringIO()
+                writer = csv.writer(buf)
+                writer.writerow(["Farmer", "Username", "Password", "Farm id"])
+                for r in credentials:
+                    writer.writerow([r.farmer_name, r.username, r.password, r.farm_id])
+                csv_href = "data:text/csv;charset=utf-8," + quote(buf.getvalue())
+
+            context.update(
+                results=results,
+                counts=counts,
+                credentials=credentials,
+                csv_href=csv_href,
+            )
+
+        return TemplateResponse(request, "admin/advisory/farmprofile/import_kml.html", context)
 
 
 @admin.register(ActualWeatherReading)
