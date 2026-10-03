@@ -3,20 +3,21 @@ import Modal from "../common/Modal";
 import { useAppSettings } from "../../context/AppSettingsContext";
 import { fetchDiseaseDetail } from "../../api/client";
 import { riskTag, capitalize } from "../../utils/helpers";
+import { useAppData } from "../../context/DataContext";
 
 export default function DiseaseDetailModal({ diseaseId, onClose }) {
   const { t } = useAppSettings();
+  const { farmId } = useAppData();
   const [disease, setDisease] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!diseaseId) return;
     setLoading(true);
-    fetchDiseaseDetail(diseaseId)
+        fetchDiseaseDetail(diseaseId, farmId)
       .then(setDisease)
       .finally(() => setLoading(false));
-  }, [diseaseId]);
-
+  }, [diseaseId, farmId]);
   const open = !!diseaseId;
   const r = disease ? riskTag(disease.risk_score) : null;
 

@@ -22,7 +22,7 @@ const LANGUAGES = [
 
 export default function Topbar() {
   const { toggleSidebar, lang, setLang, dark, toggleDark, t } = useAppSettings();
-  const { refresh, loading } = useAppData();
+  const { refresh, loading, farms, farmId, selectFarm } = useAppData();
   const location = useLocation();
     const { user, logout } = useAuth();
 
@@ -46,6 +46,24 @@ export default function Topbar() {
         ))}
       </div>
       <div className="topbar-actions">
+                {user?.is_staff && farms.length > 1 && (
+          <select
+            value={farmId}
+            onChange={(e) => selectFarm(e.target.value)}
+            aria-label="Select farm"
+            title="Select farm"
+            style={{
+              maxWidth: 200, padding: "6px 8px", borderRadius: 8,
+              border: "1px solid var(--border)", background: "var(--surface)", color: "inherit",
+            }}
+          >
+            {farms.map((f) => (
+              <option key={f.id} value={f.id}>
+                 #{f.id} · {user?.is_staff ? f.farmer_name : f.farm_name}
+              </option>
+            ))}
+          </select>
+        )}
         <button className="icon-btn" onClick={toggleDark} title="Dark Mode" aria-label="Toggle dark mode">
           🌙
         </button>

@@ -187,14 +187,14 @@ class FarmProfile(models.Model):
     # duplicates these rows.
     boundary_geojson = models.JSONField(blank=True, null=True)
     boundary_source_file = models.CharField(max_length=255, blank=True, default="")
-    # The login account that owns this farm. Farmers see only the farm linked
-    # to their account; staff/admin accounts have no farm and see all of them.
-    owner = models.OneToOneField(
+    # The login account that owns this farm. A farmer can own several farms;
+    # farmers see only their own farms, and staff/admin accounts see all of them.
+    owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="farm",
+        related_name="farms",
     )
 
     def __str__(self):

@@ -59,13 +59,17 @@ def allowed_farm_id(request):
     if user.is_staff:
         return requested
 
-    farm = FarmProfile.objects.filter(owner=user).first()
-    if farm is None:
+    own_ids = [
+        str(pk)
+        for pk in FarmProfile.objects.filter(owner=user).order_by("id").values_list("id", flat=True)
+    ]
+    if not own_ids:
         raise Http404("No farm is linked to this account.")
-    if requested and str(requested) != str(farm.pk):
+    if not requested:
+        return own_ids[0]          # no ?farm= given: their first farm
+    if str(requested) not in own_ids:
         raise Http404("Farm not found.")
-    return str(farm.pk)
-
+    return str(requested)
 
 def _latest_weather_for_farm(farm):
     """Most recent actual (non-forecast) reading, used as ML inference context."""
@@ -749,14 +753,16 @@ def scheduler_run_now(request):
 @permission_classes([IsAuthenticated])
 def me(request):
     """
-    GET /api/auth/me/ -> who the logged-in user is, and which farm they own.
-    Farmers get their own farm; staff/admin accounts have no farm (farm is null).
+    GET /api/auth/me/ -> who the logged-in user is and the farms they own.
+    `farm` is their first farm (kept for older clients); `farms` is all of them.
+    Staff/admin accounts normally own none (farm is null, farms is empty).
     """
-    farm = FarmProfile.objects.filter(owner=request.user).first()
+    farms = list(FarmProfile.objects.filter(owner=request.user).order_by("id"))
     return Response(
         {
             "username": request.user.username,
             "is_staff": request.user.is_staff,
-            "farm": FarmProfileSerializer(farm).data if farm else None,
+            "farm": FarmProfileSerializer(farms[0]).data if farms else None,
+            "farms": FarmProfileSerializer(farms, many=True).data,
         }
     )

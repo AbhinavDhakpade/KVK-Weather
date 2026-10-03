@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { fetchDashboard, fetchDiseases, fetchIrrigationRules } from "../api/client";
+import { fetchDashboard, fetchDiseases, fetchFarms, fetchIrrigationRules } from "../api/client";
 import { useAuth } from "./AuthContext";
 
 const DataContext = createContext(null);
@@ -10,16 +10,45 @@ const DataContext = createContext(null);
 // sync interval itself so a fresh sync shows up within a few minutes, not
 // up to an hour late.
 const AUTO_REFRESH_MS = 5 * 60 * 1000; // 5 minutes
+const FARM_KEY = "agriaura_selected_farm";
 
 export function DataProvider({ children }) {
   const { user } = useAuth();
-  const farmId = user?.farm?.id ?? 1; // staff have no farm of their own yet: fall back to 1
+
+  // The list of farms this person may look at: the server returns every farm
+  // for admins, and only their own farms for farmers.
+  const [farms, setFarms] = useState(() => user?.farms ?? []);
+  const [selectedFarmId, setSelectedFarmId] = useState(() => {
+    const saved = Number(localStorage.getItem(FARM_KEY)) || 0;
+    if (user?.is_staff) return saved || 1;
+    const ownIds = (user?.farms ?? []).map((f) => f.id);
+    return ownIds.includes(saved) ? saved : ownIds[0] ?? user?.farm?.id ?? 1;
+  });
+  const farmId = selectedFarmId;
 
   const [dashboard, setDashboard] = useState(null);
   const [diseases, setDiseases] = useState([]);
   const [irrigationRules, setIrrigationRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchFarms()
+      .then((res) => {
+        const list = res.results ?? res;
+        setFarms(list);
+        // If the remembered farm is not in the list, fall back to the first one.
+        setSelectedFarmId((current) =>
+          list.length === 0 || list.some((f) => f.id === current) ? current : list[0].id
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  const selectFarm = useCallback((id) => {
+    localStorage.setItem(FARM_KEY, String(id));
+    setSelectedFarmId(Number(id));
+  }, []);
 
   const loadAll = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -65,6 +94,8 @@ export function DataProvider({ children }) {
   const value = useMemo(
     () => ({
       farmId,
+      farms,
+      selectFarm,
       dashboard,
       diseases,
       irrigationRules,
@@ -72,7 +103,7 @@ export function DataProvider({ children }) {
       error,
       refresh: loadAll,
     }),
-    [farmId, dashboard, diseases, irrigationRules, loading, error, loadAll]
+    [farmId, farms, selectFarm, dashboard, diseases, irrigationRules, loading, error, loadAll]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

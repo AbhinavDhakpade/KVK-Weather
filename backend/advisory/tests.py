@@ -64,3 +64,31 @@ class FarmAccessTests(APITestCase):
         self.assertEqual(self.client.get("/api/farms/").data["count"], 2)
         self.assertEqual(self.client.get(f"/api/farms/{self.farm_b.id}/").status_code, 200)
         self.assertEqual(self.client.get(f"/api/alerts/?farm={self.farm_b.id}").status_code, 200)
+        
+        
+    def test_farmer_with_two_farms_sees_both_but_not_others(self):
+        farm_a2 = FarmProfile.objects.create(
+            farm_name="A Field 2", farmer_name="Farmer A",
+            planting_date=datetime.date.today(), owner=self.user_a,
+        )
+        self.client.force_authenticate(self.user_a)
+        self.assertEqual(self.client.get("/api/farms/").data["count"], 2)
+        for fid in (self.farm_a.id, farm_a2.id):
+            self.assertEqual(self.client.get(f"/api/farms/{fid}/").status_code, 200, fid)
+            self.assertEqual(self.client.get(f"/api/alerts/?farm={fid}").status_code, 200, fid)
+        self.assertEqual(self.client.get(f"/api/farms/{self.farm_b.id}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/alerts/?farm={self.farm_b.id}").status_code, 404)
+        self.assertEqual(self.client.get("/api/alerts/?farm=abc").status_code, 404)
+        
+        
+    def test_me_lists_all_own_farms(self):
+        FarmProfile.objects.create(
+            farm_name="A Field 2", farmer_name="Farmer A",
+            planting_date=datetime.date.today(), owner=self.user_a,
+        )
+        self.client.force_authenticate(self.user_a)
+        data = self.client.get("/api/auth/me/").data
+        self.assertEqual(len(data["farms"]), 2)
+        self.assertEqual(data["farm"]["id"], self.farm_a.id)
+        self.client.force_authenticate(self.staff)
+        self.assertEqual(self.client.get("/api/auth/me/").data["farms"], [])    
