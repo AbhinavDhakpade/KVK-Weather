@@ -136,7 +136,8 @@ def xlsx_bytes(rows, farm, range_key):
         ("Farmer", farm.farmer_name),
         ("Range", RANGE_LABELS[range_key]),
         ("Rows", len(rows)),
-        ("Source", "Observed daily weather (NASA POWER), newest first"),
+        ("Data sources", ", ".join(sorted({r.data_source for r in rows})) or "none"),
+        ("Order", "Newest first"),
         ("Exported at", timezone.localtime().replace(tzinfo=None).strftime("%Y-%m-%d %H:%M")),
     ]:
         info.append([label, _safe_text(value) if isinstance(value, str) else value])
