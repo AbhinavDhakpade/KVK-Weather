@@ -135,18 +135,28 @@ def sync_farm(farm, history_days=7, forecast_days=7, generate_alerts=True, max_r
         stats["errors"].append(f"{farm}: both sources failed — nothing synced.")
         return stats
 
-    # Running GDD cumulative total: start from the most recent existing reading
-    # so the meter doesn't reset to zero every sync.
-    last_reading = (
-        ActualWeatherReading.objects.filter(farm=farm).order_by("-date").first()
-    )
-    cumulative = last_reading.gdd_cumulative if last_reading else 0.0
     today = timezone.localdate()
 
     with transaction.atomic():
         # History (NASA POWER) -> ActualWeatherReading — ascending so cumulative
         # GDD accrues correctly.
         history_sorted = sorted(history_raw, key=lambda r: r.date)
+
+        # Running GDD cumulative total. Every sync re-fetches days that are
+        # already stored, so the total must start from the reading just BEFORE
+        # the first fetched day. Starting from the newest stored reading (as
+        # this used to) added the same days again on every run, inflating the
+        # total by a full history window each time.
+        if history_sorted:
+            baseline = (
+                ActualWeatherReading.objects.filter(farm=farm, date__lt=history_sorted[0].date)
+                .order_by("-date")
+                .first()
+            )
+        else:  # NASA POWER failed: forecast continues from the newest stored day
+            baseline = ActualWeatherReading.objects.filter(farm=farm).order_by("-date").first()
+        cumulative = baseline.gdd_cumulative if baseline else 0.0
+
         seen_dates = set()
         for raw in history_sorted:
             if raw.date in seen_dates:
