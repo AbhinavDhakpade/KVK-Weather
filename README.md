@@ -70,9 +70,9 @@ python manage.py seed_data --reset      # imports the Excel file + seeds all ref
 python manage.py train_ml_models        # trains the disease/irrigation/yield ML models
 python manage.py createsuperuser        # your admin account, for /admin/ and the admin view of the API
 
-# Optional: load real farmers from the KML files, then create a login for each
+# Optional: load real farmers from the KML files. Each new farmer also gets a login, and the
+# one-time table of usernames + passwords is printed here: save it.
 python manage.py import_kml_farmers
-python manage.py create_farmer_users    # prints a one-time table of usernames + passwords: save it
 
 python manage.py runserver 0.0.0.0:8000
 ```
@@ -149,17 +149,59 @@ The command is idempotent — `--reset` clears existing rows first; without it, 
 
 Every API endpoint requires a token, except `POST /api/auth/login/`.
 
-- **Farmer accounts** (created by `create_farmer_users`, one per KML farm) see and edit only their own farm. Asking for another farm returns 404.
-- **Admin accounts** (staff/superusers) can see all farms and use the scheduler and `farmer-details` endpoints.
+- **Farmer accounts** (created automatically when a farmer is imported from KML) see and edit only their own farms. One login can own several farms; a farmer with more than one gets a farm dropdown in the top bar. Asking for anyone else's farm returns 404.
+- **Admin accounts** (staff/superusers) can see all farms, switch between farmers with the same dropdown, and use the scheduler, `farmer-details` and KML upload features.
 
-`POST /api/auth/login/` with `{"username", "password"}` returns `{"token": "..."}`. Send it as `Authorization: Token <token>`. `GET /api/auth/me/` returns the logged-in user and their farm. The access rules are covered by `python manage.py test advisory`.
+`POST /api/auth/login/` with `{"username", "password"}` returns `{"token": "..."}`. Send it as `Authorization: Token <token>`. `GET /api/auth/me/` returns the logged-in user and the farms they own. The access rules are covered by `python manage.py test advisory`.
+
+### Adding farmers from KML files
+
+Each KML file holds one field boundary (exported from Google Earth Pro) and the farmer's name. There are two ways to import them:
+
+- **Command line:** put the `.kml` files in `backend/advisory/data/kml_farmers/` and run `python manage.py import_kml_farmers` (add `--dry-run` to preview without writing anything).
+- **Admin page:** in `/admin/` open Farm profiles, click **Import KML files**, choose one or more files and read the result for each. This needs a staff account that is allowed to add farms and users.
+
+For every file the importer decides one of four things:
+
+| Result | When | What happens |
+|---|---|---|
+| New farmer | The farmer's name has not been seen before | A farm and a login are created. The username and a random password are shown **once** (the admin page offers them as a CSV download). |
+| New farm | Known farmer name, but the field is at a different place | The farm is added to that farmer's existing login. No new password. |
+| Already present | Same file name, or same farmer name at the same place (within about 100 m) | Nothing changes. |
+| Error | Unreadable file, no polygon, or larger than 5 MB | Nothing is written. |
+
+A KML file carries no identifier except the name, so two different people with the same name would end up sharing one login. Check the "New farm" lines and fix the owner in `/admin/` if that happens. The files hold boundaries only, so village and phone stay blank and the planting date defaults to the import date: edit them in `/admin/`, then run `recompute_gdd` (below). `python manage.py create_farmer_users` still exists for farms that have no login, for example farms created by hand in the admin.
+
+### Weather history and downloads
+
+The **History** page (sidebar) shows a farm's observed daily weather: the last 20 readings, the last 7 days or the last 30 days, newest first. The **CSV** and **Excel** buttons download exactly the rows on screen with every column (the Excel file also has an Info sheet). Days are counted back from the newest stored reading, because NASA POWER publishes observed weather about 2 days late. The API behind it is `/api/history/` and `/api/history/export/` (the download type is the `file` parameter, `csv` or `xlsx`; it is not called `format` because Django REST Framework reserves that name).
+
+The hourly sync keeps refreshing the last 7 days, and older days stay stored. To have 30 days for a farm, run a one-off backfill:
+
+```bash
+python manage.py sync_weather --history-days 30 --no-alerts              # all farms
+python manage.py sync_weather --farm 2 --history-days 30 --no-alerts     # one farm
+```
+
+### Growing degree days (GDD) and `recompute_gdd`
+
+Cumulative GDD is counted from each farm's **planting date**; days before planting add nothing. Because the totals are stored per day, rebuild them after you correct a planting date:
+
+```bash
+python manage.py recompute_gdd --dry-run   # preview what would change
+python manage.py recompute_gdd             # all farms (add --farm 2 for just one)
+```
+
+Demo (`seed`) rows are left untouched. Earlier versions of the sync added the same days to the total again on every run, which made it grow without limit. The current sync is safe to repeat, and this command also repairs data written by the old version.
 
 ### Key API endpoints
 
 | Endpoint | Description |
 |---|---|
 | `POST /api/auth/login/` | Exchange a username and password for a token (the only public endpoint) |
-| `GET /api/auth/me/` | The logged-in user and their farm (`farm` is null for admin accounts) |
+| `GET /api/auth/me/` | The logged-in user and the farms they own (`farm` is the first one, `farms` lists all; both empty for admin accounts) |
+| `GET /api/history/?range=7d` | Observed daily weather for one farm, newest first. `range` is `last20` (default), `7d` or `30d` |
+| `GET /api/history/export/?range=7d&file=csv` | The same rows as a download; `file` is `csv` or `xlsx` |
 | `GET /api/dashboard/?farm=1` | Composite payload powering the dashboard home page in one request |
 | `GET /api/diseases/?ordering=-risk_score` | All 30 diseases/pests, lightweight list |
 | `GET /api/diseases/<id>/` | Full disease detail incl. treatment protocol |
@@ -263,6 +305,8 @@ Beyond the original dashboard's static cards and charts, this build adds:
 - **Real Leaflet + OpenStreetMap map** (Farm page) — replaces the old static gradient placeholder with an actual interactive map, farm marker, and a circle sized to the farm's real area in hectares. No API key required; map tiles load from `tile.openstreetmap.org` directly in the browser, so they need normal outbound internet access (they will not load in network-restricted sandboxes/CI runners, same as the weather APIs).
 - **Farmer vs Expert mode** — Farmer mode shows a single big yes/no irrigation verdict, simple fact cards, and a lighter dashboard; Expert mode reveals the full technical breakdown, reference tables, and all charts. Genuinely different rendered content per page, not just hidden/shown via CSS.
 - **Forecast-driven live alerts** with a pulsing **LIVE** badge distinguishing them from manually-seeded sample alerts (see section 3a).
+- **History page** — last 20 readings / last 7 days / last 30 days of observed weather in a table (Expert mode adds ET₀, VPD, solar and GDD columns), with CSV and Excel downloads.
+- **Login and farm picker** — a login screen, plus a dropdown in the top bar for admins (all farmers) and for farmers who own more than one farm.
 
 ## 5. Architecture notes
 
@@ -273,6 +317,7 @@ Beyond the original dashboard's static cards and charts, this build adds:
 - **Alerts on the dashboard**: active alerts now render as a compact strip at the very top of the dashboard, above the health score, so they're the first thing a farmer sees when opening the app.
 - **Voice guidance**: uses the browser's native `SpeechSynthesis` API, building the narration string from live dashboard data (health score, top disease risks, today's weather, active alert count) rather than a hard-coded script.
 - **Stable farm IDs across resets**: `seed_data --reset` resets the database's auto-increment sequence after clearing rows, so the farm (and every other seeded row) always comes back as id=1 on a fresh seed. Without this, SQLite's internal counter keeps climbing across repeated `--reset` runs, silently breaking anything that assumes `farm=1` (including the demo farm the frontend falls back to for admin accounts; farmers use their own farm from their login).
+- **SQLite and the background sync**: the database runs in WAL mode with `IMMEDIATE` transactions and a 20-second timeout (see `DATABASES` in `settings.py`), so the hourly sync and web requests can overlap without `database is locked` errors. WAL creates `db.sqlite3-wal` and `db.sqlite3-shm` next to the database while it is in use; both are git-ignored.
 
 ## 6. Database schema (advisory app)
 
@@ -281,7 +326,7 @@ Beyond the original dashboard's static cards and charts, this build adds:
 | `Disease` | One row per pest/disease from the Excel sheet (30 rows) |
 | `Treatment` | Treatment protocol shared by `disease_type` (fungal/bacterial/viral/phytoplasma/pest) |
 | `IrrigationRule` | Soil type × crop stage irrigation decision table (10 rows) |
-| `FarmProfile` | Static farm metadata (location, variety, soil, base temp, etc.) |
+| `FarmProfile` | Static farm metadata (location, variety, soil, base temp, planting date, etc.) and its `owner` login; one login can own several farms |
 | `WeatherReading` | Daily weather/agronomy readings per farm, flagged `is_forecast`. Includes UV index, wind direction/gusts, precipitation probability, sunrise/sunset, `data_source` (nasa_power/open_meteo/seed), and `fetched_at` for freshness display. |
 | `Alert` | Advisory alerts per farm; `source` distinguishes manually-seeded (`manual`) from forecast-rule-generated (`weather_rule`) alerts, deduplicated by `rule_key` |
 | `AdvisoryTimelineItem` | Ordered "what to do next" timeline entries |
