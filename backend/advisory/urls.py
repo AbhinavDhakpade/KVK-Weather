@@ -19,11 +19,13 @@ router.register(r"weather/forecast", views.ForecastWeatherReadingViewSet, basena
 router.register(r"alerts", views.AlertViewSet, basename="alert")
 router.register(r"timeline", views.AdvisoryTimelineViewSet, basename="timelineitem")
 router.register(r"growth-stages", views.CropGrowthStageViewSet, basename="growthstage")
-"Auth login and auth me are done Manually"
+
 urlpatterns = [
     path("dashboard/", views.dashboard_summary, name="dashboard-summary"),
     path("auth/login/", obtain_auth_token, name="auth-login"),
     path("auth/me/", views.me, name="auth-me"),
+    path("history/", views.history_list, name="history"),
+    path("history/export/", views.history_export, name="history-export"),
     path("weather/refresh/", views.refresh_weather_now, name="weather-refresh"),
     path("scheduler/status/", views.scheduler_status, name="scheduler-status"),
     path("scheduler/logs/", views.scheduler_logs, name="scheduler-logs"),

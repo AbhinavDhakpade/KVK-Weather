@@ -7,7 +7,7 @@ from rest_framework import viewsets, filters
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from rest_framework.exceptions import NotAuthenticated, PermissionDenied
 
 from .ml.inference import models_available, predict_irrigation_requirement, predict_yield
@@ -24,6 +24,7 @@ from .models import (
     SchedulerLog,
     Treatment,
 )
+from .history import HISTORY_RANGES, csv_bytes, history_rows, xlsx_bytes
 from .serializers import (
     ActualWeatherReadingSerializer,
     AlertSerializer,
@@ -765,4 +766,75 @@ def me(request):
             "farm": FarmProfileSerializer(farms[0]).data if farms else None,
             "farms": FarmProfileSerializer(farms, many=True).data,
         }
+        
     )
+    
+    
+@api_view(["GET"])
+def history_list(request):
+    """
+    GET /api/history/?range=last20|7d|30d&farm=<id>
+
+    The observed (NASA POWER) daily readings for one farm, newest first.
+    Farmers always get their own farm; admins can pick one with ?farm=.
+    """
+    range_key = request.query_params.get("range", "last20")
+    if range_key not in HISTORY_RANGES:
+        return Response(
+            {"detail": "range must be one of: " + ", ".join(HISTORY_RANGES)},
+            status=400,
+        )
+
+    farm_id = allowed_farm_id(request)
+    farm = (
+        FarmProfile.objects.filter(pk=farm_id).first()
+        if farm_id
+        else FarmProfile.objects.order_by("id").first()
+    )
+    if farm is None:
+        raise Http404("Farm not found.")
+
+    rows = history_rows(farm.id, range_key)
+    return Response(
+        {
+            "farm": {"id": farm.id, "farm_name": farm.farm_name, "farmer_name": farm.farmer_name},
+            "range": range_key,
+            "count": len(rows),
+            "results": ActualWeatherReadingSerializer(rows, many=True).data,
+        }
+    )
+@api_view(["GET"])
+def history_export(request):
+    """
+    GET /api/history/export/?range=last20|7d|30d&file=csv|xlsx&farm=<id>
+
+    The same rows as /api/history/, as a downloadable file. (The parameter is
+    called `file`, not `format`, because DRF reserves ?format= for itself.)
+    """
+    range_key = request.query_params.get("range", "last20")
+    file_type = request.query_params.get("file", "csv")
+    if range_key not in HISTORY_RANGES:
+        return Response({"detail": "range must be one of: " + ", ".join(HISTORY_RANGES)}, status=400)
+    if file_type not in ("csv", "xlsx"):
+        return Response({"detail": "file must be csv or xlsx"}, status=400)
+
+    farm_id = allowed_farm_id(request)
+    farm = (
+        FarmProfile.objects.filter(pk=farm_id).first()
+        if farm_id
+        else FarmProfile.objects.order_by("id").first()
+    )
+    if farm is None:
+        raise Http404("Farm not found.")
+
+    rows = history_rows(farm.id, range_key)
+    if file_type == "csv":
+        content = csv_bytes(rows)
+        content_type = "text/csv; charset=utf-8"
+    else:
+        content = xlsx_bytes(rows, farm, range_key)
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    response = HttpResponse(content, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="agriaura-history-farm{farm.id}-{range_key}.{file_type}"'
+    return response    
