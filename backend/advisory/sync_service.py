@@ -164,7 +164,8 @@ def sync_farm(farm, history_days=7, forecast_days=7, generate_alerts=True, max_r
                 continue
             seen_dates.add(raw.date)
             enriched = enrich_raw_weather(raw, farm.base_temp_c, farm.latitude, farm.elevation_m)
-            cumulative += enriched["gdd_daily"]
+            if raw.date >= farm.planting_date:  # GDD counts from planting, not before it
+                cumulative += enriched["gdd_daily"]
             defaults = {k: enriched[k] for k in DIRECT_FIELDS}
             defaults.update(
                 gdd_cumulative=round(cumulative, 1),
@@ -195,7 +196,8 @@ def sync_farm(farm, history_days=7, forecast_days=7, generate_alerts=True, max_r
                 continue
             f_seen.add(raw.date)
             enriched = enrich_raw_weather(raw, farm.base_temp_c, farm.latitude, farm.elevation_m)
-            cumulative += enriched["gdd_daily"]
+            if raw.date >= farm.planting_date:
+                cumulative += enriched["gdd_daily"]
             defaults = {k: enriched[k] for k in DIRECT_FIELDS}
             defaults.update(
                 gdd_cumulative=round(cumulative, 1),

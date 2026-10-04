@@ -22,7 +22,8 @@ def raw_days(end, count, tmax=32.0):
 class CumulativeGddTests(TestCase):
     def setUp(self):
         self.farm = FarmProfile.objects.create(
-            farm_name="F", farmer_name="X", planting_date=datetime.date.today(),
+            farm_name="F", farmer_name="X",
+            planting_date=datetime.date.today() - datetime.timedelta(days=90),
             latitude=18.5, longitude=73.8,
         )
         self.end = datetime.date.today() - datetime.timedelta(days=2)
@@ -59,6 +60,23 @@ class CumulativeGddTests(TestCase):
         thirty = self.newest().gdd_cumulative
         self.sync(raw_days(self.end, 7))  # the regular 7-day sync afterwards
         self.assertEqual(self.newest().gdd_cumulative, thirty)
+
+    def test_gdd_counts_only_from_the_planting_date(self):
+        # Planted 2 days before the newest reading: only the last 3 days count.
+        self.farm.planting_date = self.end - datetime.timedelta(days=2)
+        self.farm.save()
+        self.sync(raw_days(self.end, 7))
+        rows = list(ActualWeatherReading.objects.filter(farm=self.farm).order_by("date"))
+        before, after = rows[:-3], rows[-3:]
+        self.assertTrue(all(r.gdd_cumulative == 0 for r in before))
+        self.assertAlmostEqual(after[-1].gdd_cumulative, sum(r.gdd_daily for r in after), places=1)
+        # Fixing the planting date and recomputing moves the total accordingly.
+        self.farm.planting_date = self.end - datetime.timedelta(days=4)
+        self.farm.save()
+        call_command("recompute_gdd", stdout=StringIO())
+        newest = self.newest()
+        five = list(ActualWeatherReading.objects.filter(farm=self.farm).order_by("-date")[:5])
+        self.assertAlmostEqual(newest.gdd_cumulative, sum(r.gdd_daily for r in five), places=1)
 
     def test_recompute_command_repairs_inflated_totals_and_skips_seed_rows(self):
         self.sync(raw_days(self.end, 5))

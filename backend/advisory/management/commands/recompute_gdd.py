@@ -8,8 +8,9 @@ every run, so gdd_cumulative kept growing. This walks each farm's stored days
 in date order and rebuilds the running total from the daily GDD values:
 
   - Real readings (NASA POWER / Open-Meteo) are re-chained: each day's total is
-    the previous day's total plus that day's gdd_daily, starting from 0 at the
-    first stored real reading.
+    the previous day's total plus that day's gdd_daily. Days before the farm's
+    planting date add nothing (GDD is counted from planting), so run this
+    again after you correct a farm's planting date.
   - Demo "seed" rows are left exactly as they are, and real readings after them
     continue from the seed total.
   - Forecast rows continue on from the last observed day.
@@ -37,7 +38,8 @@ def rebuild_farm(farm, dry_run=False):
             if row.data_source == "seed":
                 running = row.gdd_cumulative
                 continue
-            running += row.gdd_daily
+            if row.date >= farm.planting_date:
+                running += row.gdd_daily
             new_value = round(running, 1)
             if row.gdd_cumulative != new_value:
                 changed += 1
@@ -50,7 +52,8 @@ def rebuild_farm(farm, dry_run=False):
             if row.data_source == "seed":
                 running = row.gdd_cumulative
                 continue
-            running += row.gdd_daily
+            if row.date >= farm.planting_date:
+                running += row.gdd_daily
             new_value = round(running, 1)
             if row.gdd_cumulative != new_value:
                 changed += 1
