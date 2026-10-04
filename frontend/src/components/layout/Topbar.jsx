@@ -12,6 +12,7 @@ const PAGE_KEY_BY_PATH = {
   "/alerts": "alerts",
   "/gdd": "gdd",
   "/farm": "farm",
+  "/history": "history",
 };
 
 const LANGUAGES = [

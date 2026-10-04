@@ -11,6 +11,7 @@ export const translations = {
       alerts: "Alerts",
       gdd: "GDD & Growth",
       farm: "Farm Info",
+      history: "History",
     },
     pageTitles: {
       dashboard: "Smart Dashboard · Baramati",
@@ -21,6 +22,7 @@ export const translations = {
       alerts: "Alert Center",
       gdd: "GDD & Crop Growth",
       farm: "Farm Information",
+      history: "Weather History",
     },
     mode: {
       farmer: "Farmer Mode",
@@ -317,6 +319,7 @@ export const translations = {
       alerts: "सूचना",
       gdd: "जीडीडी व वाढ",
       farm: "शेत माहिती",
+      history: "इतिहास",
     },
     pageTitles: {
       dashboard: "स्मार्ट डॅशबोर्ड · बारामती",
@@ -327,6 +330,7 @@ export const translations = {
       alerts: "सूचना केंद्र",
       gdd: "जीडीडी व पीक वाढ",
       farm: "शेत माहिती",
+      history: "हवामान इतिहास",
     },
     mode: {
       farmer: "शेतकरी मोड",
@@ -623,6 +627,7 @@ export const translations = {
       alerts: "अलर्ट",
       gdd: "जीडीडी व वृद्धि",
       farm: "खेत जानकारी",
+      history: "इतिहास",
     },
     pageTitles: {
       dashboard: "स्मार्ट डैशबोर्ड · बारामती",
@@ -633,6 +638,7 @@ export const translations = {
       alerts: "अलर्ट केंद्र",
       gdd: "जीडीडी व फसल वृद्धि",
       farm: "खेत जानकारी",
+      history: "मौसम इतिहास",
     },
     mode: {
       farmer: "किसान मोड",

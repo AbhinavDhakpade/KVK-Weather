@@ -94,3 +94,29 @@ export const fetchTimeline = (farmId = 1) =>
 export const fetchFarms = () => api.get("/farms/").then((r) => r.data);
 export const fetchFarm = (id) => api.get(`/farms/${id}/`).then((r) => r.data);
 export const patchFarm = (id, data) => api.patch(`/farms/${id}/`, data).then((r) => r.data);
+
+/* ===================== HISTORY ===================== */
+// range: "last20" | "7d" | "30d". farmId is optional: farmers always get their own farm.
+export const fetchHistory = (range = "last20", farmId) =>
+  api
+    .get("/history/", { params: { range, ...(farmId ? { farm: farmId } : {}) } })
+    .then((r) => r.data);
+
+// A plain <a href> can't send the login token, so fetch the file with axios
+// and hand the browser a temporary link to save it. file: "csv" | "xlsx".
+export const downloadHistory = async (range, file, farmId) => {
+  const res = await api.get("/history/export/", {
+    params: { range, file, ...(farmId ? { farm: farmId } : {}) },
+    responseType: "blob",
+  });
+  const match = /filename="?([^";]+)"?/.exec(res.headers["content-disposition"] || "");
+  const filename = match ? match[1] : `agriaura-history.${file}`;
+  const url = URL.createObjectURL(res.data);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};

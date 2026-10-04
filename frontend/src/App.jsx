@@ -8,6 +8,7 @@ import ForecastPage from "./pages/ForecastPage";
 import AlertsPage from "./pages/AlertsPage";
 import GddPage from "./pages/GddPage";
 import FarmPage from "./pages/FarmPage";
+import HistoryPage from "./pages/HistoryPage";
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/gdd" element={<GddPage />} />
         <Route path="/farm" element={<FarmPage />} />
+        <Route path="/history" element={<HistoryPage />} />
       </Route>
     </Routes>
   );
